@@ -1,0 +1,86 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'development'
+    project: 'taskman'
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093  # Uncomment when alertmanager is added
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # System metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+
+  # Application Services
+  - job_name: 'authorization-service'
+    static_configs:
+      - targets: ['authorization-service:8080']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    scrape_timeout: 10s
+
+  - job_name: 'audit-service-go'
+    static_configs:
+      - targets: ['audit-service-go:9093']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    scrape_timeout: 10s
+
+  # Infrastructure Services
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']  # Requires postgres_exporter
+    scrape_interval: 30s
+    # Disabled by default, uncomment when postgres_exporter is added
+    # Enable this when we add postgres_exporter to the stack
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']  # Requires redis_exporter
+    scrape_interval: 30s
+    # Disabled by default, uncomment when redis_exporter is added
+
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']  # RabbitMQ prometheus metrics
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # NGINX metrics
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:8080']  # Requires nginx-prometheus-exporter
+    scrape_interval: 30s
+    # Disabled by default, uncomment when nginx exporter is added
+
+  # Health checks as metrics
+  - job_name: 'health-checks'
+    static_configs:
+      - targets: ['nginx:80']
+    scrape_interval: 60s
+    metrics_path: '/health'
+    params:
+      format: ['prometheus']

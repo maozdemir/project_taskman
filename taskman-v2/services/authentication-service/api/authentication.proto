@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package authentication.v1;
+
+option go_package = "github.com/taskman/v2/services/authentication-service/pkg/api";
+
+import "google/protobuf/timestamp.proto";
+
+// AuthenticationService handles user authentication, JWT tokens, and sessions
+service AuthenticationService {
+  // Login authenticates a user and returns JWT tokens
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Logout invalidates the user's session
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // RefreshToken generates a new access token using a refresh token
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+
+  // VerifyToken validates a JWT token
+  rpc VerifyToken(VerifyTokenRequest) returns (VerifyTokenResponse);
+
+  // InitiatePasswordReset sends a password reset email
+  rpc InitiatePasswordReset(PasswordResetRequest) returns (PasswordResetResponse);
+
+  // CompletePasswordReset resets the password using a reset token
+  rpc CompletePasswordReset(CompletePasswordResetRequest) returns (CompletePasswordResetResponse);
+
+  // GetSession retrieves session information
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+
+  // ListSessions lists all active sessions for a user
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+
+  // RevokeSession revokes a specific session
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  string ip_address = 3;
+  string user_agent = 4;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  User user = 4;
+}
+
+message LogoutRequest {
+  string session_id = 1;
+}
+
+message LogoutResponse {
+  bool success = 1;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message VerifyTokenRequest {
+  string token = 1;
+}
+
+message VerifyTokenResponse {
+  bool valid = 1;
+  TokenClaims claims = 2;
+}
+
+message PasswordResetRequest {
+  string email = 1;
+}
+
+message PasswordResetResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CompletePasswordResetRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+message CompletePasswordResetResponse {
+  bool success = 1;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {
+  string user_id = 1;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  string session_id = 1;
+}
+
+message RevokeSessionResponse {
+  bool success = 1;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Models
+
+message User {
+  string id = 1;
+  string email = 2;
+  string username = 3;
+  string company_id = 4;
+  repeated string roles = 5;
+}
+
+message TokenClaims {
+  string user_id = 1;
+  string email = 2;
+  string username = 3;
+  string company_id = 4;
+  repeated string roles = 5;
+  google.protobuf.Timestamp issued_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+}
+
+message Session {
+  string id = 1;
+  string user_id = 2;
+  string ip_address = 3;
+  string user_agent = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  bool is_active = 7;
+}

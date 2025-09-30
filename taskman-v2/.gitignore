@@ -1,0 +1,93 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database data
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker volumes
+volumes/
+
+# Kubernetes secrets
+k8s/secrets/
+
+# Vault data (local only)
+vault_data/
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.zip
+
+# Node modules (if any)
+node_modules/
+
+# Generated protobuf files (optional, some teams commit these)
+# *.pb.go
+# *_grpc.pb.go
+
+# Certificates (local dev only)
+*.pem
+*.key
+*.crt
+*.csr
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# Helm
+charts/*.tgz
+
+# Debug
+debug
+__debug_bin
+
+# OS specific
+Thumbs.db
+.DS_Store

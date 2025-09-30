@@ -1,0 +1,6 @@
+**/node_modules/*
+**/*.csv
+**/*.zip
+**/system-*
+**/coverage/*
+**/.git_disabled/*

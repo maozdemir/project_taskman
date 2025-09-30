@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package audit.v1;
+
+option go_package = "github.com/taskman/v2/services/audit-service/pkg/api";
+
+import "google/protobuf/timestamp.proto";
+
+// AuditService handles event logging and compliance reporting
+service AuditService {
+  // LogEvent logs an audit event
+  rpc LogEvent(LogEventRequest) returns (LogEventResponse);
+
+  // QueryEvents queries audit events with filters
+  rpc QueryEvents(QueryEventsRequest) returns (QueryEventsResponse);
+
+  // GetUserActivity retrieves audit trail for a specific user
+  rpc GetUserActivity(UserActivityRequest) returns (UserActivityResponse);
+
+  // GetComplianceReport generates a compliance report
+  rpc GetComplianceReport(ComplianceReportRequest) returns (ComplianceReportResponse);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message LogEventRequest {
+  string event_type = 1;
+  string actor_id = 2;
+  string actor_email = 3;
+  string target_type = 4;
+  string target_id = 5;
+  string company_id = 6;
+  string action = 7;
+  string result = 8; // success, failure
+  string ip_address = 9;
+  string user_agent = 10;
+  map<string, string> metadata = 11;
+}
+
+message LogEventResponse {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message QueryEventsRequest {
+  string company_id = 1;
+  string event_type = 2;
+  string actor_id = 3;
+  string target_type = 4;
+  string target_id = 5;
+  string action = 6;
+  string result = 7;
+  google.protobuf.Timestamp start_time = 8;
+  google.protobuf.Timestamp end_time = 9;
+  int32 limit = 10;
+  int32 offset = 11;
+}
+
+message QueryEventsResponse {
+  repeated AuditEvent events = 1;
+  int32 total_count = 2;
+}
+
+message UserActivityRequest {
+  string user_id = 1;
+  string company_id = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Timestamp end_time = 4;
+  int32 limit = 5;
+  int32 offset = 6;
+}
+
+message UserActivityResponse {
+  repeated AuditEvent events = 1;
+  int32 total_count = 2;
+  ActivitySummary summary = 3;
+}
+
+message ComplianceReportRequest {
+  string company_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  string report_type = 4; // access, changes, security
+}
+
+message ComplianceReportResponse {
+  string report_id = 1;
+  ComplianceReport report = 2;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Models
+
+message AuditEvent {
+  string id = 1;
+  string event_type = 2;
+  string actor_id = 3;
+  string actor_email = 4;
+  string target_type = 5;
+  string target_id = 6;
+  string company_id = 7;
+  string action = 8;
+  string result = 9;
+  string ip_address = 10;
+  string user_agent = 11;
+  map<string, string> metadata = 12;
+  google.protobuf.Timestamp timestamp = 13;
+}
+
+message ActivitySummary {
+  int32 total_events = 1;
+  int32 success_count = 2;
+  int32 failure_count = 3;
+  map<string, int32> actions_count = 4;
+  map<string, int32> event_types_count = 5;
+}
+
+message ComplianceReport {
+  string report_type = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 total_events = 4;
+  repeated ComplianceMetric metrics = 5;
+  repeated AuditEvent sample_events = 6;
+}
+
+message ComplianceMetric {
+  string name = 1;
+  string value = 2;
+  string description = 3;
+}

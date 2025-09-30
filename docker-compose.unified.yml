@@ -1,0 +1,322 @@
+services:
+  # === Infrastructure Services ===
+
+  # PostgreSQL Database (shared by all services)
+  postgres:
+    image: postgres:15-alpine
+    container_name: taskman-postgres
+    environment:
+      POSTGRES_DB: taskman
+      POSTGRES_USER: taskman
+      POSTGRES_PASSWORD: taskman_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - taskman-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskman -d taskman"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: taskman-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - taskman-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.11-management-alpine
+    container_name: taskman-rabbitmq
+    hostname: taskman-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP port
+      - "15672:15672"   # Management UI port
+      - "15692:15692"   # Prometheus metrics port
+    environment:
+      RABBITMQ_DEFAULT_USER: taskman
+      RABBITMQ_DEFAULT_PASS: taskman_dev_password
+      RABBITMQ_DEFAULT_VHOST: /
+      # Enable management and prometheus plugins
+      RABBITMQ_ENABLED_PLUGINS_FILE: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    networks:
+      - taskman-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # === Application Services ===
+
+  # Authorization Service (Go - includes authentication, users, roles, permissions)
+  authorization-service:
+    build:
+      context: ./taskman-backend/services/authorization-service
+      dockerfile: Dockerfile
+    container_name: taskman-authorization-service
+    ports:
+      - "50051:50051"  # gRPC port
+      - "8080:8080"    # HTTP/REST gateway port
+    environment:
+      DB_SOURCE: "postgresql://taskman:taskman_dev_password@postgres:5432/taskman?sslmode=disable"
+      RABBITMQ_URI: "amqp://taskman:taskman_dev_password@rabbitmq:5672/"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASS: ""
+      JWT_ACCESS_SECRET: "your-super-secret-access-key-change-in-production"
+      JWT_REFRESH_SECRET: "your-super-secret-refresh-key-change-in-production"
+      CACHE_EXP_SECONDS: "300"
+      LOG_LEVEL: "info"
+      LOG_FORMAT: "json"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Audit Service (Go - high-performance audit logging)
+  audit-service-go:
+    build:
+      context: ./taskman-backend/services/audit-service-go
+      dockerfile: Dockerfile
+    container_name: taskman-audit-service-go
+    ports:
+      - "50052:50052"  # gRPC port
+      - "8081:8081"    # HTTP/REST gateway port
+      - "9093:9093"    # Metrics port
+    environment:
+      DATABASE_URL: "postgres://taskman:taskman_dev_password@postgres:5432/taskman?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      RABBITMQ_URL: "amqp://taskman:taskman_dev_password@rabbitmq:5672/"
+      JWT_SECRET: "your-super-secret-access-key-change-in-production"
+      LOG_LEVEL: "info"
+      LOG_FORMAT: "json"
+      METRICS_ENABLED: "true"
+      RATE_LIMIT_ENABLED: "true"
+      GRPC_PORT: "50052"
+      HTTP_PORT: "8081"
+      METRICS_PORT: "9093"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/v1/audit/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # === Load Balancer ===
+
+  # NGINX Load Balancer and API Gateway
+  nginx:
+    build:
+      context: ./taskman-backend/services/nginx
+      dockerfile: Dockerfile
+    container_name: taskman-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      authorization-service:
+        condition: service_healthy
+      audit-service-go:
+        condition: service_healthy
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # === Monitoring and Observability ===
+
+  # Prometheus Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: taskman-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+      - '--web.route-prefix=/'
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana Dashboards and Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: taskman-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_SECRET_KEY=taskman-secret-key-change-in-production
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Node Exporter for system metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: taskman-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - taskman-network
+    restart: unless-stopped
+
+  # cAdvisor for container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: taskman-cadvisor
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - taskman-network
+    restart: unless-stopped
+
+  # === Development Tools (Optional) ===
+
+  # Adminer - Database Administration
+  adminer:
+    image: adminer:latest
+    container_name: taskman-adminer
+    ports:
+      - "8083:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  # Jaeger - Distributed Tracing (Optional)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: taskman-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger Collector HTTP
+      - "14250:14250"  # Jaeger Collector gRPC
+      - "6831:6831/udp"  # Jaeger Agent
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    networks:
+      - taskman-network
+    restart: unless-stopped
+    profiles:
+      - observability
+
+networks:
+  taskman-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# === Profiles ===
+# Run with specific profiles:
+# docker-compose -f docker-compose.unified.yml up                    # Core services only
+# docker-compose -f docker-compose.unified.yml --profile dev up      # Include dev tools
+# docker-compose -f docker-compose.unified.yml --profile observability up # Include tracing

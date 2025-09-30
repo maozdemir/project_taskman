@@ -1,0 +1,273 @@
+{
+  "rabbit_version": "3.12.0",
+  "rabbitmq_version": "3.12.0",
+  "users": [
+    {
+      "name": "taskman",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "taskman",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "auth.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "user.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "task.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "iam.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "notification.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "auth.events.dlx",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "user.events.dlx",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "task.events.dlx",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "audit.auth_events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "auth.events.dlx",
+        "x-dead-letter-routing-key": "dlq",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "audit.user_events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "user.events.dlx",
+        "x-dead-letter-routing-key": "dlq",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "audit.task_events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "task.events.dlx",
+        "x-dead-letter-routing-key": "dlq",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "audit.iam_events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "notification.user_events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 3600000
+      }
+    },
+    {
+      "name": "notification.task_events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 3600000
+      }
+    },
+    {
+      "name": "auth.events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "user.events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "task.events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "auth.events",
+      "vhost": "/",
+      "destination": "audit.auth_events",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "user.events",
+      "vhost": "/",
+      "destination": "audit.user_events",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "user.events",
+      "vhost": "/",
+      "destination": "notification.user_events",
+      "destination_type": "queue",
+      "routing_key": "user.created",
+      "arguments": {}
+    },
+    {
+      "source": "user.events",
+      "vhost": "/",
+      "destination": "notification.user_events",
+      "destination_type": "queue",
+      "routing_key": "user.password_reset",
+      "arguments": {}
+    },
+    {
+      "source": "task.events",
+      "vhost": "/",
+      "destination": "audit.task_events",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "task.events",
+      "vhost": "/",
+      "destination": "notification.task_events",
+      "destination_type": "queue",
+      "routing_key": "task.assigned",
+      "arguments": {}
+    },
+    {
+      "source": "task.events",
+      "vhost": "/",
+      "destination": "notification.task_events",
+      "destination_type": "queue",
+      "routing_key": "task.completed",
+      "arguments": {}
+    },
+    {
+      "source": "iam.events",
+      "vhost": "/",
+      "destination": "audit.iam_events",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "auth.events.dlx",
+      "vhost": "/",
+      "destination": "auth.events.dlq",
+      "destination_type": "queue",
+      "routing_key": "dlq",
+      "arguments": {}
+    },
+    {
+      "source": "user.events.dlx",
+      "vhost": "/",
+      "destination": "user.events.dlq",
+      "destination_type": "queue",
+      "routing_key": "dlq",
+      "arguments": {}
+    },
+    {
+      "source": "task.events.dlx",
+      "vhost": "/",
+      "destination": "task.events.dlq",
+      "destination_type": "queue",
+      "routing_key": "dlq",
+      "arguments": {}
+    }
+  ]
+}

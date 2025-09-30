@@ -1,0 +1,39 @@
+{
+  "schedules": [
+    {
+      "id": "1754086716471",
+      "name": "Tests",
+      "mode": "sparc",
+      "taskInstructions": "Create and run tests for our backend. Ensure that everything works flawlessly. Do not cheat on tests. While writing the tests, analyze the code carefully and  think about the necessary input, output and data structures that is logical for a given feature, and write the tests accordingly, and ensure that the code runs successfully. Analyze the test codes multiple times first, once you find the logical and high-value test, if the existing code is not suitable, rewrite the code. The tests should not have any cheatsü meaning, every single line of tests must not have any backdoors.",
+      "scheduleType": "time",
+      "timeInterval": "1",
+      "timeUnit": "hour",
+      "selectedDays": {
+        "sun": true,
+        "mon": true,
+        "tue": true,
+        "wed": true,
+        "thu": true,
+        "fri": true,
+        "sat": true
+      },
+      "startDate": "",
+      "startHour": "",
+      "startMinute": "00",
+      "expirationDate": "",
+      "expirationHour": "00",
+      "expirationMinute": "00",
+      "requireActivity": false,
+      "active": false,
+      "taskInteraction": "wait",
+      "inactivityDelay": "10",
+      "lastExecutionTime": "2025-08-03T06:16:43.142Z",
+      "lastSkippedTime": "2025-08-03T03:17:00.617Z",
+      "lastTaskId": "76cbde5f-dc4f-4336-b0af-846f1c6ee5aa",
+      "nextExecutionTime": "2025-08-03T07:16:00.142Z",
+      "modeDisplayName": "⚡️ SPARC Orchestrator",
+      "createdAt": "2025-08-01T22:18:36.471Z",
+      "updatedAt": "2025-08-01T22:20:18.253Z"
+    }
+  ]
+}
