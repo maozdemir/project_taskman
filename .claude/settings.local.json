@@ -39,7 +39,22 @@
       "Bash(DATABASE_URL=\"postgresql://auth_user:auth_password_dev@localhost:5432/auth_db?sslmode=disable\" REDIS_ADDR=\"localhost:6379\" REDIS_PASSWORD=\"redis_password_dev\" RABBITMQ_URI=\"amqp://taskman:rabbitmq_password_dev@localhost:5672/\" JWT_ACCESS_SECRET=\"dev-secret-key-min-32-characters-long-for-testing\" JWT_REFRESH_SECRET=\"dev-refresh-secret-key-min-32-characters-long-for-testing\" HTTP_PORT=8080 go run cmd/http-server/main.go)",
       "Bash(pkill:*)",
       "Bash(npm install:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit: TaskMan v2 microservices platform\n\nThis commit includes the complete TaskMan v2 platform with microservices architecture:\n\nBackend Services:\n- Authentication service (gRPC + HTTP REST API)\n- Audit service with TimescaleDB\n- IAM Admin, User, Task, and Notification service skeletons\n- Shared libraries for common functionality\n\nFrontend:\n- Next.js 15 frontend with TypeScript\n- Authentication and user management UI\n- Modern UI with Tailwind CSS\n\nInfrastructure:\n- Docker Compose development environment\n- PostgreSQL databases for each service\n- TimescaleDB for audit logs\n- Redis for caching\n- RabbitMQ for event streaming\n- Kong API Gateway\n- Prometheus & Grafana for monitoring\n- Jaeger for distributed tracing\n\nRecent fixes:\n- Fixed CORS configuration in authentication HTTP server\n- Updated frontend to use relative paths for API calls to work with Next.js rewrites\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(gh:*)",
+      "Bash(git push:*)",
+      "Bash(npm run build:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(awk:*)",
+      "Bash(grep:*)",
+      "Bash(ESLINT_NO_DEV_ERRORS=true npm run build)",
+      "Bash(go list:*)",
+      "Bash(USER_DATABASE_URL=\"postgresql://user_user:user_password_dev@localhost:5432/user_db?sslmode=disable\" IAM_DATABASE_URL=\"postgresql://iam_user:iam_password_dev@localhost:5432/iam_db?sslmode=disable\" ADMIN_EMAIL=\"admin@alperozdemir.com\" ADMIN_USERNAME=\"admin\" ADMIN_PASSWORD=\"Alper123!\" ADMIN_FIRST_NAME=\"Alper\" ADMIN_LAST_NAME=\"Ozdemir\" ADMIN_COMPANY_NAME=\"Alper''s Company\" ADMIN_COMPANY_SLUG=\"alper-company\" go run scripts/create-admin.go)",
+      "Bash(USER_DATABASE_URL=\"postgresql://user_user:user_password_dev@localhost:5432/user_db?sslmode=disable\" IAM_DATABASE_URL=\"postgresql://iam_user:iam_password_dev@localhost:5432/iam_db?sslmode=disable\" ADMIN_EMAIL=\"admin@alperozdemir.com\" ADMIN_USERNAME=\"admin\" ADMIN_PASSWORD=\"Alper123!\" ADMIN_FIRST_NAME=\"Alper\" ADMIN_LAST_NAME=\"Ozdemir\" ADMIN_COMPANY_NAME=\"Alper''s Company\" ADMIN_COMPANY_SLUG=\"alper-company\" go run create-admin.go)",
+      "Bash(USER_DATABASE_URL=\"postgresql://user_user:user_password_dev@localhost:5434/user_db?sslmode=disable\" IAM_DATABASE_URL=\"postgresql://iam_user:iam_password_dev@localhost:5435/iam_db?sslmode=disable\" ADMIN_EMAIL=\"admin@alperozdemir.com\" ADMIN_USERNAME=\"admin\" ADMIN_PASSWORD=\"Alper123!\" ADMIN_FIRST_NAME=\"Alper\" ADMIN_LAST_NAME=\"Ozdemir\" ADMIN_COMPANY_NAME=\"Alper''s Company\" ADMIN_COMPANY_SLUG=\"alper-company\" go run create-admin.go)",
+      "Bash(psql:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []
