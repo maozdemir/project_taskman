@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/taskman/v2/shared/pkg/database"
 	"github.com/taskman/v2/shared/pkg/errors"
+	"github.com/taskman/v2/shared/pkg/idgen"
 )
 
 // Session represents a user session
@@ -356,10 +356,10 @@ func (s *Storage) GetRecentLoginAttempts(ctx context.Context, email string, sinc
 
 // GenerateSessionID generates a new session ID
 func GenerateSessionID() string {
-	return uuid.New().String()
+	return idgen.GenerateSessionID()
 }
 
 // GenerateResetToken generates a new password reset token
 func GenerateResetToken() string {
-	return uuid.New().String()
+	return idgen.GenerateResetToken()
 }

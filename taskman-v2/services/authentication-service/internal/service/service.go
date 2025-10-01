@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	pb "github.com/taskman/v2/services/authentication-service/pkg/api/api"
+	"github.com/taskman/v2/services/authentication-service/internal/clients"
 	"github.com/taskman/v2/services/authentication-service/internal/storage"
 	"github.com/taskman/v2/shared/pkg/cache"
 	"github.com/taskman/v2/shared/pkg/errors"
+	"github.com/taskman/v2/shared/pkg/idgen"
 	"github.com/taskman/v2/shared/pkg/jwt"
 	"github.com/taskman/v2/shared/pkg/logger"
+	"github.com/taskman/v2/shared/pkg/password"
 	"github.com/taskman/v2/shared/pkg/queue"
 	"github.com/taskman/v2/shared/pkg/validation"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Service implements the AuthenticationService
@@ -26,6 +27,8 @@ type Service struct {
 	queue      *queue.Queue
 	jwtManager *jwt.Manager
 	log        *logger.Logger
+	userClient *clients.UserClient
+	iamClient  *clients.IAMClient
 }
 
 // Config holds service configuration
@@ -45,7 +48,15 @@ func New(cfg *Config) *Service {
 		queue:      cfg.Queue,
 		jwtManager: cfg.JWTManager,
 		log:        cfg.Logger,
+		userClient: nil, // Will be set via SetClients
+		iamClient:  nil, // Will be set via SetClients
 	}
+}
+
+// SetClients sets the gRPC clients (called after service initialization)
+func (s *Service) SetClients(userClient *clients.UserClient, iamClient *clients.IAMClient) {
+	s.userClient = userClient
+	s.iamClient = iamClient
 }
 
 // Login authenticates a user and returns JWT tokens
@@ -72,24 +83,72 @@ func (s *Service) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 		return nil, errors.ResourceExhausted("too many login attempts, please try again later").ToGRPCError()
 	}
 
-	// TODO: Call user-service to get user details and verify password
-	// For now, we'll simulate this
-	// In real implementation: userClient.GetUserByEmail(ctx, req.Email)
-	// and verify password with bcrypt.CompareHashAndPassword
+	// Get user from User Service
+	if s.userClient == nil {
+		s.log.Error("user client not initialized")
+		return nil, errors.Internal("service not properly configured").ToGRPCError()
+	}
 
-	// Simulated user data (replace with actual user-service call)
-	userID := uuid.New().String()
-	companyID := uuid.New().String()
-	roles := []string{"user"}
+	user, err := s.userClient.GetUserByEmail(ctx, req.Email)
+	if err != nil {
+		// Record failed login attempt
+		s.recordFailedLogin(ctx, req.Email, req.IpAddress)
+		s.log.Warn("user not found", "email", req.Email)
+		return nil, errors.Unauthenticated("invalid credentials").ToGRPCError()
+	}
+
+	// Check if user is active
+	if !user.IsActive {
+		s.recordFailedLogin(ctx, req.Email, req.IpAddress)
+		return nil, errors.Unauthenticated("account is disabled").ToGRPCError()
+	}
+
+	// Verify password
+	if !VerifyPassword(req.Password, user.PasswordHash) {
+		s.recordFailedLogin(ctx, req.Email, req.IpAddress)
+		s.log.Warn("invalid password", "email", req.Email)
+		return nil, errors.Unauthenticated("invalid credentials").ToGRPCError()
+	}
+
+	// Get user roles and permissions from IAM Admin Service
+	if s.iamClient == nil {
+		s.log.Error("IAM client not initialized")
+		return nil, errors.Internal("service not properly configured").ToGRPCError()
+	}
+
+	rolesResp, err := s.iamClient.GetUserRoles(ctx, user.Id, user.CompanyId)
+	var roles []string
+	if err != nil || rolesResp == nil || len(rolesResp.RoleNames) == 0 {
+		s.log.Warn("failed to get user roles, using empty roles", "user_id", user.Id, "error", err)
+		// Continue with empty roles rather than failing - user might not have roles assigned yet
+		roles = []string{}
+	} else {
+		roles = rolesResp.RoleNames
+	}
+
+	// Get user permissions
+	permissionsResp, err := s.iamClient.GetUserPermissions(ctx, user.Id, user.CompanyId)
+	var permissions []string
+	if err != nil || permissionsResp == nil || len(permissionsResp.Permissions) == 0 {
+		s.log.Warn("failed to get user permissions, using empty permissions", "user_id", user.Id, "error", err)
+		// Continue with empty permissions rather than failing
+		permissions = []string{}
+	} else {
+		permissions = permissionsResp.Permissions
+	}
+
+	userID := user.Id
+	companyID := user.CompanyId
 
 	// Generate session ID and tokens
 	sessionID := storage.GenerateSessionID()
 	tokenPair, err := s.jwtManager.GenerateTokenPair(
 		userID,
-		req.Email,
-		req.Email, // username
+		user.Email,
+		user.Username,
 		companyID,
 		roles,
+		permissions,
 		sessionID,
 	)
 	if err != nil {
@@ -123,7 +182,7 @@ func (s *Service) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 
 	// Record successful login attempt
 	attempt := &storage.LoginAttempt{
-		ID:        uuid.New().String(),
+		ID:        idgen.GenerateID(),
 		Email:     req.Email,
 		IPAddress: req.IpAddress,
 		Success:   true,
@@ -135,7 +194,7 @@ func (s *Service) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 
 	// Publish login success event
 	event := &queue.Event{
-		ID:        uuid.New().String(),
+		ID:        idgen.GenerateID(),
 		Type:      "auth.login.success",
 		Timestamp: time.Now(),
 		Payload: map[string]interface{}{
@@ -155,12 +214,26 @@ func (s *Service) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 		ExpiresAt:    timestamppb.New(tokenPair.ExpiresAt),
 		User: &pb.User{
 			Id:        userID,
-			Email:     req.Email,
-			Username:  req.Email,
+			Email:     user.Email,
+			Username:  user.Username,
 			CompanyId: companyID,
 			Roles:     roles,
 		},
 	}, nil
+}
+
+// recordFailedLogin records a failed login attempt
+func (s *Service) recordFailedLogin(ctx context.Context, email, ipAddress string) {
+	attempt := &storage.LoginAttempt{
+		ID:        idgen.GenerateID(),
+		Email:     email,
+		IPAddress: ipAddress,
+		Success:   false,
+		CreatedAt: time.Now(),
+	}
+	if err := s.storage.RecordLoginAttempt(ctx, attempt); err != nil {
+		s.log.Warn("failed to record login attempt", "error", err)
+	}
 }
 
 // Logout invalidates the user's session
@@ -187,7 +260,7 @@ func (s *Service) Logout(ctx context.Context, req *pb.LogoutRequest) (*pb.Logout
 
 	// Publish logout event
 	event := &queue.Event{
-		ID:        uuid.New().String(),
+		ID:        idgen.GenerateID(),
 		Type:      "auth.logout",
 		Timestamp: time.Now(),
 		Payload: map[string]interface{}{
@@ -227,13 +300,14 @@ func (s *Service) RefreshToken(ctx context.Context, req *pb.RefreshTokenRequest)
 		return nil, errors.Unauthenticated("session expired").ToGRPCError()
 	}
 
-	// Generate new token pair
+	// Generate new token pair (include permissions from existing claims)
 	tokenPair, err := s.jwtManager.GenerateTokenPair(
 		claims.UserID,
 		claims.Email,
 		claims.Username,
 		claims.CompanyID,
 		claims.Roles,
+		claims.Permissions,
 		session.ID,
 	)
 	if err != nil {
@@ -243,7 +317,7 @@ func (s *Service) RefreshToken(ctx context.Context, req *pb.RefreshTokenRequest)
 
 	// Publish token refresh event
 	event := &queue.Event{
-		ID:        uuid.New().String(),
+		ID:        idgen.GenerateID(),
 		Type:      "auth.token.refreshed",
 		Timestamp: time.Now(),
 		Payload: map[string]interface{}{
@@ -423,13 +497,11 @@ func (s *Service) HealthCheck(ctx context.Context, req *pb.HealthCheckRequest) (
 }
 
 // HashPassword hashes a password using bcrypt
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
+func HashPassword(pass string) (string, error) {
+	return password.HashPassword(pass)
 }
 
 // VerifyPassword checks if a password matches a hash
-func VerifyPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+func VerifyPassword(pass, hash string) bool {
+	return password.VerifyPassword(pass, hash)
 }

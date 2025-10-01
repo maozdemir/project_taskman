@@ -12,14 +12,16 @@ import (
 
 // Claims represents JWT claims
 type Claims struct {
-	UserID    string   `json:"sub"`
-	Email     string   `json:"email"`
-	Username  string   `json:"username"`
-	CompanyID string   `json:"company_id"`
-	Roles     []string `json:"roles"`
-	IssuedAt  int64    `json:"iat"`
-	ExpiresAt int64    `json:"exp"`
-	JTI       string   `json:"jti"` // JWT ID
+	UserID      string   `json:"sub"`
+	Email       string   `json:"email"`
+	Username    string   `json:"username"`
+	CompanyID   string   `json:"company_id"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
+	SessionID   string   `json:"session_id"` // Session ID for token revocation
+	IssuedAt    int64    `json:"iat"`
+	ExpiresAt   int64    `json:"exp"`
+	JTI         string   `json:"jti"` // JWT ID (same as SessionID for compatibility)
 }
 
 // TokenPair represents access and refresh tokens
@@ -48,21 +50,23 @@ func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.D
 }
 
 // GenerateTokenPair generates both access and refresh tokens
-func (m *Manager) GenerateTokenPair(userID, email, username, companyID string, roles []string, jti string) (*TokenPair, error) {
+func (m *Manager) GenerateTokenPair(userID, email, username, companyID string, roles []string, permissions []string, jti string) (*TokenPair, error) {
 	now := time.Now()
 	accessExpiresAt := now.Add(m.accessTTL)
 	refreshExpiresAt := now.Add(m.refreshTTL)
 
 	// Generate access token
 	accessClaims := &Claims{
-		UserID:    userID,
-		Email:     email,
-		Username:  username,
-		CompanyID: companyID,
-		Roles:     roles,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: accessExpiresAt.Unix(),
-		JTI:       jti,
+		UserID:      userID,
+		Email:       email,
+		Username:    username,
+		CompanyID:   companyID,
+		Roles:       roles,
+		Permissions: permissions,
+		SessionID:   jti,
+		IssuedAt:    now.Unix(),
+		ExpiresAt:   accessExpiresAt.Unix(),
+		JTI:         jti,
 	}
 
 	accessToken, err := m.generateToken(accessClaims, m.accessSecret)
@@ -72,14 +76,16 @@ func (m *Manager) GenerateTokenPair(userID, email, username, companyID string, r
 
 	// Generate refresh token
 	refreshClaims := &Claims{
-		UserID:    userID,
-		Email:     email,
-		Username:  username,
-		CompanyID: companyID,
-		Roles:     roles,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: refreshExpiresAt.Unix(),
-		JTI:       jti + "-refresh",
+		UserID:      userID,
+		Email:       email,
+		Username:    username,
+		CompanyID:   companyID,
+		Roles:       roles,
+		Permissions: permissions,
+		SessionID:   jti,
+		IssuedAt:    now.Unix(),
+		ExpiresAt:   refreshExpiresAt.Unix(),
+		JTI:         jti + "-refresh",
 	}
 
 	refreshToken, err := m.generateToken(refreshClaims, m.refreshSecret)
@@ -149,11 +155,12 @@ func (m *Manager) verifyToken(token string, secret []byte) (*Claims, error) {
 	encodedPayload := parts[1]
 	providedSignature := parts[2]
 
-	// Verify signature
+	// Verify signature using constant-time comparison to prevent timing attacks
 	message := encodedHeader + "." + encodedPayload
 	expectedSignature := m.sign(message, secret)
 
-	if providedSignature != expectedSignature {
+	// SECURITY: Use hmac.Equal for constant-time comparison
+	if !hmac.Equal([]byte(providedSignature), []byte(expectedSignature)) {
 		return nil, fmt.Errorf("invalid signature")
 	}
 

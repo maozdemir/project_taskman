@@ -1,15 +1,25 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
 
-# Copy shared module first
+# Copy go module files first for better caching
+COPY shared/go.mod shared/go.sum /build/shared/
+COPY services/authentication-service/go.mod services/authentication-service/go.sum /build/services/authentication-service/
+COPY services/user-service/go.mod services/user-service/go.sum /build/services/user-service/
+COPY services/iam-admin-service/go.mod services/iam-admin-service/go.sum /build/services/iam-admin-service/
+
+# Copy shared module
 COPY shared /build/shared
 
-# Copy service files
+# Copy proto-generated code from other services (needed for gRPC clients)
+COPY services/user-service/pkg /build/services/user-service/pkg
+COPY services/iam-admin-service/pkg /build/services/iam-admin-service/pkg
+
+# Copy authentication service files
 COPY services/authentication-service /build/services/authentication-service
 
 WORKDIR /build/services/authentication-service

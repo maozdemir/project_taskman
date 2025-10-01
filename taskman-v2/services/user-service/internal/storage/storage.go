@@ -1,0 +1,576 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/taskman/v2/shared/pkg/database"
+	"github.com/taskman/v2/shared/pkg/errors"
+	"github.com/taskman/v2/shared/pkg/idgen"
+	"github.com/taskman/v2/shared/pkg/password"
+)
+
+// Storage handles database operations
+type Storage struct {
+	db *database.DB
+}
+
+// New creates a new Storage instance
+func New(db *database.DB) *Storage {
+	return &Storage{db: db}
+}
+
+// Company represents a company entity
+type Company struct {
+	ID               string
+	Name             string
+	Slug             string
+	SubscriptionTier string
+	MaxUsers         int
+	IsActive         bool
+	Settings         map[string]string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// User represents a user entity
+type User struct {
+	ID            string
+	CompanyID     string
+	Email         string
+	Username      string
+	PasswordHash  string
+	FirstName     string
+	LastName      string
+	AvatarURL     sql.NullString
+	Department    sql.NullString
+	Location      sql.NullString
+	IsActive      bool
+	EmailVerified bool
+	LastLoginAt   sql.NullTime
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Company operations
+
+func (s *Storage) CreateCompany(ctx context.Context, company *Company) error {
+	query := `
+		INSERT INTO companies (id, name, slug, subscription_tier, max_users, is_active, settings, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`
+
+	settingsJSON, err := json.Marshal(company.Settings)
+	if err != nil {
+		return errors.Internal("failed to marshal settings")
+	}
+
+	_, err = s.db.ExecContext(ctx, query,
+		company.ID,
+		company.Name,
+		company.Slug,
+		company.SubscriptionTier,
+		company.MaxUsers,
+		company.IsActive,
+		settingsJSON,
+		company.CreatedAt,
+		company.UpdatedAt,
+	)
+
+	if err != nil {
+		return errors.Internal("failed to create company")
+	}
+
+	return nil
+}
+
+func (s *Storage) GetCompany(ctx context.Context, companyID string) (*Company, error) {
+	query := `
+		SELECT id, name, slug, subscription_tier, max_users, is_active, settings, created_at, updated_at
+		FROM companies
+		WHERE id = $1
+	`
+
+	var company Company
+	var settingsJSON []byte
+
+	err := s.db.QueryRowContext(ctx, query, companyID).Scan(
+		&company.ID,
+		&company.Name,
+		&company.Slug,
+		&company.SubscriptionTier,
+		&company.MaxUsers,
+		&company.IsActive,
+		&settingsJSON,
+		&company.CreatedAt,
+		&company.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, errors.NotFound(fmt.Sprintf("company with id %s", companyID))
+	}
+	if err != nil {
+		return nil, errors.Internal("failed to get company")
+	}
+
+	if err := json.Unmarshal(settingsJSON, &company.Settings); err != nil {
+		company.Settings = make(map[string]string)
+	}
+
+	return &company, nil
+}
+
+func (s *Storage) UpdateCompany(ctx context.Context, company *Company) error {
+	query := `
+		UPDATE companies
+		SET name = $2, subscription_tier = $3, max_users = $4, is_active = $5, settings = $6, updated_at = $7
+		WHERE id = $1
+	`
+
+	settingsJSON, err := json.Marshal(company.Settings)
+	if err != nil {
+		return errors.Internal("failed to marshal settings")
+	}
+
+	result, err := s.db.ExecContext(ctx, query,
+		company.ID,
+		company.Name,
+		company.SubscriptionTier,
+		company.MaxUsers,
+		company.IsActive,
+		settingsJSON,
+		time.Now(),
+	)
+
+	if err != nil {
+		return errors.Internal("failed to update company")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.NotFound(fmt.Sprintf("company with id %s", company.ID))
+	}
+
+	return nil
+}
+
+func (s *Storage) DeleteCompany(ctx context.Context, companyID string) error {
+	query := `DELETE FROM companies WHERE id = $1`
+
+	result, err := s.db.ExecContext(ctx, query, companyID)
+	if err != nil {
+		return errors.Internal("failed to delete company")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.NotFound(fmt.Sprintf("company with id %s", companyID))
+	}
+
+	return nil
+}
+
+func (s *Storage) ListCompanies(ctx context.Context, limit, offset int) ([]*Company, int, error) {
+	// Get total count
+	countQuery := `SELECT COUNT(*) FROM companies`
+	var totalCount int
+	err := s.db.QueryRowContext(ctx, countQuery).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, errors.Internal("failed to count companies")
+	}
+
+	// Get companies
+	query := `
+		SELECT id, name, slug, subscription_tier, max_users, is_active, settings, created_at, updated_at
+		FROM companies
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, errors.Internal("failed to list companies")
+	}
+	defer rows.Close()
+
+	companies := make([]*Company, 0)
+	for rows.Next() {
+		var company Company
+		var settingsJSON []byte
+
+		err := rows.Scan(
+			&company.ID,
+			&company.Name,
+			&company.Slug,
+			&company.SubscriptionTier,
+			&company.MaxUsers,
+			&company.IsActive,
+			&settingsJSON,
+			&company.CreatedAt,
+			&company.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, 0, errors.Internal("failed to scan company")
+		}
+
+		if err := json.Unmarshal(settingsJSON, &company.Settings); err != nil {
+			company.Settings = make(map[string]string)
+		}
+
+		companies = append(companies, &company)
+	}
+
+	return companies, totalCount, nil
+}
+
+// User operations
+
+func (s *Storage) CreateUser(ctx context.Context, user *User) error {
+	query := `
+		INSERT INTO users (id, company_id, email, username, password_hash, first_name, last_name,
+		                   avatar_url, department, location, is_active, email_verified, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	`
+
+	_, err := s.db.ExecContext(ctx, query,
+		user.ID,
+		user.CompanyID,
+		user.Email,
+		user.Username,
+		user.PasswordHash,
+		user.FirstName,
+		user.LastName,
+		user.AvatarURL,
+		user.Department,
+		user.Location,
+		user.IsActive,
+		user.EmailVerified,
+		user.CreatedAt,
+		user.UpdatedAt,
+	)
+
+	if err != nil {
+		// Check for unique constraint violation
+		if database.IsUniqueViolation(err) {
+			return errors.AlreadyExists(fmt.Sprintf("user with email %s", user.Email))
+		}
+		return errors.Internal("failed to create user")
+	}
+
+	return nil
+}
+
+func (s *Storage) GetUser(ctx context.Context, userID, companyID string) (*User, error) {
+	query := `
+		SELECT id, company_id, email, username, password_hash, first_name, last_name,
+		       avatar_url, department, location, is_active, email_verified, last_login_at, created_at, updated_at
+		FROM users
+		WHERE id = $1 AND company_id = $2
+	`
+
+	var user User
+	err := s.db.QueryRowContext(ctx, query, userID, companyID).Scan(
+		&user.ID,
+		&user.CompanyID,
+		&user.Email,
+		&user.Username,
+		&user.PasswordHash,
+		&user.FirstName,
+		&user.LastName,
+		&user.AvatarURL,
+		&user.Department,
+		&user.Location,
+		&user.IsActive,
+		&user.EmailVerified,
+		&user.LastLoginAt,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, errors.NotFound(fmt.Sprintf("user with id %s", userID))
+	}
+	if err != nil {
+		return nil, errors.Internal("failed to get user")
+	}
+
+	return &user, nil
+}
+
+func (s *Storage) GetUserByEmail(ctx context.Context, email, companyID string) (*User, error) {
+	var query string
+	var args []interface{}
+
+	// If company_id is empty, search across all companies (used during login)
+	if companyID == "" {
+		query = `
+			SELECT id, company_id, email, username, password_hash, first_name, last_name,
+			       avatar_url, department, location, is_active, email_verified, last_login_at, created_at, updated_at
+			FROM users
+			WHERE email = $1
+			LIMIT 1
+		`
+		args = []interface{}{email}
+	} else {
+		query = `
+			SELECT id, company_id, email, username, password_hash, first_name, last_name,
+			       avatar_url, department, location, is_active, email_verified, last_login_at, created_at, updated_at
+			FROM users
+			WHERE email = $1 AND company_id = $2
+		`
+		args = []interface{}{email, companyID}
+	}
+
+	var user User
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
+		&user.ID,
+		&user.CompanyID,
+		&user.Email,
+		&user.Username,
+		&user.PasswordHash,
+		&user.FirstName,
+		&user.LastName,
+		&user.AvatarURL,
+		&user.Department,
+		&user.Location,
+		&user.IsActive,
+		&user.EmailVerified,
+		&user.LastLoginAt,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, errors.NotFound(fmt.Sprintf("user with email %s", email))
+	}
+	if err != nil {
+		return nil, errors.Internal(fmt.Sprintf("failed to get user by email: %v", err))
+	}
+
+	return &user, nil
+}
+
+func (s *Storage) UpdateUser(ctx context.Context, user *User) error {
+	query := `
+		UPDATE users
+		SET email = $2, username = $3, first_name = $4, last_name = $5,
+		    avatar_url = $6, department = $7, location = $8, is_active = $9,
+		    email_verified = $10, updated_at = $11
+		WHERE id = $1 AND company_id = $12
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		user.ID,
+		user.Email,
+		user.Username,
+		user.FirstName,
+		user.LastName,
+		user.AvatarURL,
+		user.Department,
+		user.Location,
+		user.IsActive,
+		user.EmailVerified,
+		time.Now(),
+		user.CompanyID,
+	)
+
+	if err != nil {
+		if database.IsUniqueViolation(err) {
+			return errors.AlreadyExists(fmt.Sprintf("user with email %s", user.Email))
+		}
+		return errors.Internal("failed to update user")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.NotFound(fmt.Sprintf("user with id %s", user.ID))
+	}
+
+	return nil
+}
+
+func (s *Storage) UpdatePassword(ctx context.Context, userID, companyID, newPasswordHash string) error {
+	query := `
+		UPDATE users
+		SET password_hash = $1, updated_at = $2
+		WHERE id = $3 AND company_id = $4
+	`
+
+	result, err := s.db.ExecContext(ctx, query, newPasswordHash, time.Now(), userID, companyID)
+	if err != nil {
+		return errors.Internal("failed to update password")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.NotFound(fmt.Sprintf("user with id %s", userID))
+	}
+
+	return nil
+}
+
+func (s *Storage) UpdateLastLogin(ctx context.Context, userID, companyID string) error {
+	query := `
+		UPDATE users
+		SET last_login_at = $1
+		WHERE id = $2 AND company_id = $3
+	`
+
+	_, err := s.db.ExecContext(ctx, query, time.Now(), userID, companyID)
+	return err
+}
+
+func (s *Storage) DeleteUser(ctx context.Context, userID, companyID string) error {
+	query := `DELETE FROM users WHERE id = $1 AND company_id = $2`
+
+	result, err := s.db.ExecContext(ctx, query, userID, companyID)
+	if err != nil {
+		return errors.Internal("failed to delete user")
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.NotFound(fmt.Sprintf("user with id %s", userID))
+	}
+
+	return nil
+}
+
+func (s *Storage) ListUsers(ctx context.Context, companyID string, limit, offset int, activeOnly bool) ([]*User, int, error) {
+	// Get total count
+	countQuery := `SELECT COUNT(*) FROM users WHERE company_id = $1`
+	if activeOnly {
+		countQuery += ` AND is_active = TRUE`
+	}
+
+	var totalCount int
+	err := s.db.QueryRowContext(ctx, countQuery, companyID).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, errors.Internal("failed to count users")
+	}
+
+	// Get users
+	query := `
+		SELECT id, company_id, email, username, password_hash, first_name, last_name,
+		       avatar_url, department, location, is_active, email_verified, last_login_at, created_at, updated_at
+		FROM users
+		WHERE company_id = $1
+	`
+	if activeOnly {
+		query += ` AND is_active = TRUE`
+	}
+	query += ` ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+
+	rows, err := s.db.QueryContext(ctx, query, companyID, limit, offset)
+	if err != nil {
+		return nil, 0, errors.Internal("failed to list users")
+	}
+	defer rows.Close()
+
+	users := make([]*User, 0)
+	for rows.Next() {
+		var user User
+		err := rows.Scan(
+			&user.ID,
+			&user.CompanyID,
+			&user.Email,
+			&user.Username,
+			&user.PasswordHash,
+			&user.FirstName,
+			&user.LastName,
+			&user.AvatarURL,
+			&user.Department,
+			&user.Location,
+			&user.IsActive,
+			&user.EmailVerified,
+			&user.LastLoginAt,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, 0, errors.Internal("failed to scan user")
+		}
+
+		users = append(users, &user)
+	}
+
+	return users, totalCount, nil
+}
+
+func (s *Storage) SearchUsers(ctx context.Context, companyID, query string, limit int) ([]*User, error) {
+	searchQuery := `
+		SELECT id, company_id, email, username, password_hash, first_name, last_name,
+		       avatar_url, department, location, is_active, email_verified, last_login_at, created_at, updated_at
+		FROM users
+		WHERE company_id = $1
+		  AND (
+		    first_name ILIKE $2 OR
+		    last_name ILIKE $2 OR
+		    email ILIKE $2 OR
+		    username ILIKE $2
+		  )
+		ORDER BY created_at DESC
+		LIMIT $3
+	`
+
+	searchPattern := fmt.Sprintf("%%%s%%", query)
+
+	rows, err := s.db.QueryContext(ctx, searchQuery, companyID, searchPattern, limit)
+	if err != nil {
+		return nil, errors.Internal("failed to search users")
+	}
+	defer rows.Close()
+
+	users := make([]*User, 0)
+	for rows.Next() {
+		var user User
+		err := rows.Scan(
+			&user.ID,
+			&user.CompanyID,
+			&user.Email,
+			&user.Username,
+			&user.PasswordHash,
+			&user.FirstName,
+			&user.LastName,
+			&user.AvatarURL,
+			&user.Department,
+			&user.Location,
+			&user.IsActive,
+			&user.EmailVerified,
+			&user.LastLoginAt,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, errors.Internal("failed to scan user")
+		}
+
+		users = append(users, &user)
+	}
+
+	return users, nil
+}
+
+// Helper functions
+
+func GenerateUserID() string {
+	return idgen.GenerateUserID()
+}
+
+func GenerateCompanyID() string {
+	return idgen.GenerateCompanyID()
+}
+
+func HashPassword(pass string) (string, error) {
+	return password.HashPassword(pass)
+}
+
+func VerifyPassword(pass, hash string) bool {
+	return password.VerifyPassword(pass, hash)
+}

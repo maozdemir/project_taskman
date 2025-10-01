@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,541 +11,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/taskman/v2/services/authentication-service/internal/clients"
+	"github.com/taskman/v2/services/authentication-service/internal/handlers"
 	"github.com/taskman/v2/services/authentication-service/internal/storage"
 	"github.com/taskman/v2/shared/pkg/cache"
 	"github.com/taskman/v2/shared/pkg/database"
+	"github.com/taskman/v2/shared/pkg/httputil"
 	"github.com/taskman/v2/shared/pkg/jwt"
 	"github.com/taskman/v2/shared/pkg/queue"
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/lib/pq"
 )
 
 var logger *slog.Logger
 
-type HTTPServer struct {
-	db         *database.DB
-	cache      *cache.Cache
-	queue      *queue.Queue
-	jwtManager *jwt.Manager
-	storage    *storage.Storage
-}
-
-type User struct {
-	ID           string
-	Email        string
-	Username     string
-	PasswordHash string
-	FirstName    string
-	LastName     string
-	IsActive     bool
-}
-
-type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type RegisterRequest struct {
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	Password  string `json:"password"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-}
-
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
-type LogoutRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
-type AuthResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Message string      `json:"message,omitempty"`
-}
-
-func (s *HTTPServer) getUserByEmail(ctx context.Context, email string) (*User, error) {
-	query := `SELECT id, email, username, password_hash, first_name, last_name, is_active FROM users WHERE email = $1`
-
-	var user User
-	err := s.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Username,
-		&user.PasswordHash,
-		&user.FirstName,
-		&user.LastName,
-		&user.IsActive,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("user not found")
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-func (s *HTTPServer) getUserRoles(ctx context.Context, userID string) ([]string, error) {
-	query := `
-		SELECT r.name
-		FROM roles r
-		JOIN user_roles ur ON r.id = ur.role_id
-		WHERE ur.user_id = $1
-	`
-
-	rows, err := s.db.QueryContext(ctx, query, userID)
-	if err != nil {
-		return []string{}, nil // Return empty array if no roles table
-	}
-	defer rows.Close()
-
-	var roles []string
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			return []string{}, err
-		}
-		roles = append(roles, role)
-	}
-
-	if len(roles) == 0 {
-		roles = []string{"user"} // Default role
-	}
-
-	return roles, nil
-}
-
-func (s *HTTPServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.Error("failed to decode login request", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid request"})
-		return
-	}
-
-	logger.Info("login attempt", "email", req.Email)
-
-	// Get user from database
-	user, err := s.getUserByEmail(r.Context(), req.Email)
-	if err != nil {
-		logger.Error("user lookup failed", "error", err, "email", req.Email)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid credentials"})
-		return
-	}
-
-	// Check if user is active
-	if !user.IsActive {
-		logger.Error("inactive user login attempt", "email", req.Email)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Account is inactive"})
-		return
-	}
-
-	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		logger.Error("password verification failed", "email", req.Email)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid credentials"})
-		return
-	}
-
-	// Get user roles
-	roles, err := s.getUserRoles(r.Context(), user.ID)
-	if err != nil {
-		logger.Error("failed to get user roles", "error", err)
-		roles = []string{"user"}
-	}
-
-	// Generate session ID and tokens
-	sessionID := storage.GenerateSessionID()
-	companyID := uuid.New().String() // TODO: Get actual company ID from user
-
-	tokenPair, err := s.jwtManager.GenerateTokenPair(
-		user.ID,
-		user.Email,
-		user.Username,
-		companyID,
-		roles,
-		sessionID,
-	)
-	if err != nil {
-		logger.Error("failed to generate tokens", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Failed to generate tokens"})
-		return
-	}
-
-	// Create session
-	session := &storage.Session{
-		ID:           sessionID,
-		UserID:       user.ID,
-		RefreshToken: tokenPair.RefreshToken,
-		IPAddress:    r.RemoteAddr,
-		UserAgent:    r.UserAgent(),
-		ExpiresAt:    time.Now().Add(7 * 24 * time.Hour), // 7 days
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		IsActive:     true,
-	}
-
-	if err := s.storage.CreateSession(r.Context(), session); err != nil {
-		logger.Error("failed to create session", "error", err)
-		// Continue anyway, session failure shouldn't block login
-	}
-
-	// Record successful login
-	attempt := &storage.LoginAttempt{
-		ID:        uuid.New().String(),
-		Email:     req.Email,
-		IPAddress: r.RemoteAddr,
-		Success:   true,
-		CreatedAt: time.Now(),
-	}
-	if err := s.storage.RecordLoginAttempt(r.Context(), attempt); err != nil {
-		logger.Warn("failed to record login attempt", "error", err)
-	}
-
-	response := AuthResponse{
-		Success: true,
-		Data: map[string]interface{}{
-			"user": map[string]interface{}{
-				"id":         user.ID,
-				"username":   user.Username,
-				"email":      user.Email,
-				"first_name": user.FirstName,
-				"last_name":  user.LastName,
-				"roles":      roles,
-			},
-			"token":        tokenPair.AccessToken,
-			"refreshToken": tokenPair.RefreshToken,
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
-	logger.Info("login successful", "email", req.Email, "user_id", user.ID)
-}
-
-func (s *HTTPServer) handleRegister(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.Error("failed to decode register request", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid request"})
-		return
-	}
-
-	logger.Info("registration attempt", "email", req.Email, "username", req.Username)
-
-	// Check if user exists
-	existing, _ := s.getUserByEmail(r.Context(), req.Email)
-	if existing != nil {
-		logger.Error("user already exists", "email", req.Email)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "User already exists"})
-		return
-	}
-
-	// Hash password
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		logger.Error("failed to hash password", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Failed to process password"})
-		return
-	}
-
-	// Create user
-	query := `
-		INSERT INTO users (email, username, password_hash, first_name, last_name, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-		RETURNING id
-	`
-
-	var userID string
-	err = s.db.QueryRowContext(r.Context(), query, req.Email, req.Username, string(passwordHash), req.FirstName, req.LastName).Scan(&userID)
-	if err != nil {
-		logger.Error("failed to create user", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Failed to create user"})
-		return
-	}
-
-	// Generate tokens
-	sessionID := storage.GenerateSessionID()
-	companyID := uuid.New().String()
-	roles := []string{"user"}
-
-	tokenPair, err := s.jwtManager.GenerateTokenPair(
-		userID,
-		req.Email,
-		req.Username,
-		companyID,
-		roles,
-		sessionID,
-	)
-	if err != nil {
-		logger.Error("failed to generate tokens", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Failed to generate tokens"})
-		return
-	}
-
-	// Create session
-	session := &storage.Session{
-		ID:           sessionID,
-		UserID:       userID,
-		RefreshToken: tokenPair.RefreshToken,
-		IPAddress:    r.RemoteAddr,
-		UserAgent:    r.UserAgent(),
-		ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		IsActive:     true,
-	}
-
-	if err := s.storage.CreateSession(r.Context(), session); err != nil {
-		logger.Warn("failed to create session", "error", err)
-	}
-
-	response := AuthResponse{
-		Success: true,
-		Data: map[string]interface{}{
-			"user": map[string]interface{}{
-				"id":         userID,
-				"username":   req.Username,
-				"email":      req.Email,
-				"first_name": req.FirstName,
-				"last_name":  req.LastName,
-				"roles":      roles,
-			},
-			"token":        tokenPair.AccessToken,
-			"refreshToken": tokenPair.RefreshToken,
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
-	logger.Info("registration successful", "email", req.Email, "user_id", userID)
-}
-
-func (s *HTTPServer) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.Error("failed to decode refresh request", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid request"})
-		return
-	}
-
-	logger.Info("token refresh attempt")
-
-	// Verify refresh token
-	claims, err := s.jwtManager.VerifyRefreshToken(req.RefreshToken)
-	if err != nil {
-		logger.Error("invalid refresh token", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid refresh token"})
-		return
-	}
-
-	// Get user to ensure they still exist and are active
-	user, err := s.getUserByEmail(r.Context(), claims.Email)
-	if err != nil {
-		logger.Error("user lookup failed during refresh", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "User not found"})
-		return
-	}
-
-	if !user.IsActive {
-		logger.Error("inactive user refresh attempt", "email", claims.Email)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Account is inactive"})
-		return
-	}
-
-	// Get user roles
-	roles, err := s.getUserRoles(r.Context(), user.ID)
-	if err != nil {
-		logger.Error("failed to get user roles", "error", err)
-		roles = []string{"user"}
-	}
-
-	// Generate new tokens
-	sessionID := storage.GenerateSessionID()
-	tokenPair, err := s.jwtManager.GenerateTokenPair(
-		user.ID,
-		user.Email,
-		user.Username,
-		claims.CompanyID,
-		roles,
-		sessionID,
-	)
-	if err != nil {
-		logger.Error("failed to generate tokens", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Failed to generate tokens"})
-		return
-	}
-
-	response := AuthResponse{
-		Success: true,
-		Data: map[string]interface{}{
-			"user": map[string]interface{}{
-				"id":       user.ID,
-				"username": user.Username,
-				"email":    user.Email,
-			},
-			"token":        tokenPair.AccessToken,
-			"refreshToken": tokenPair.RefreshToken,
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
-	logger.Info("token refresh successful", "user_id", user.ID)
-}
-
-func (s *HTTPServer) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req LogoutRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.Error("failed to decode logout request", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid request"})
-		return
-	}
-
-	logger.Info("logout attempt")
-
-	// Invalidate session by refresh token
-	session, err := s.storage.GetSessionByRefreshToken(r.Context(), req.RefreshToken)
-	if err == nil && session != nil {
-		if err := s.storage.RevokeSession(r.Context(), session.ID); err != nil {
-			logger.Warn("failed to revoke session", "error", err)
-		}
-	}
-
-	response := AuthResponse{
-		Success: true,
-		Message: "Logged out successfully",
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
-	logger.Info("logout successful")
-}
-
-func (s *HTTPServer) handleValidate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Extract token from Authorization header
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Missing authorization header"})
-		return
-	}
-
-	// Remove "Bearer " prefix
-	token := authHeader
-	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-		token = authHeader[7:]
-	}
-
-	logger.Info("token validation attempt")
-
-	claims, err := s.jwtManager.VerifyAccessToken(token)
-	if err != nil {
-		logger.Error("token validation failed", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{Success: false, Message: "Invalid token"})
-		return
-	}
-
-	response := AuthResponse{
-		Success: true,
-		Data: map[string]interface{}{
-			"sub":        claims.UserID,
-			"email":      claims.Email,
-			"roles":      claims.Roles,
-			"company_id": claims.CompanyID,
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
-	logger.Info("token validation successful", "user_id", claims.UserID)
-}
-
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next(w, r)
-	}
+	return httputil.CORSMiddleware(next)
 }
 
 func main() {
@@ -638,22 +117,99 @@ func main() {
 	// Initialize storage
 	storageInst := storage.New(db)
 
-	// Initialize HTTP server
-	httpServer := &HTTPServer{
-		db:         db,
-		cache:      cacheClient,
-		queue:      queueClient,
-		jwtManager: jwtManager,
-		storage:    storageInst,
+	// Initialize gRPC clients for microservices
+	userServiceAddr := os.Getenv("USER_SERVICE_ADDR")
+	if userServiceAddr == "" {
+		userServiceAddr = "localhost:50053"
+	}
+	userClient, err := clients.NewUserClient(userServiceAddr)
+	if err != nil {
+		logger.Error("failed to connect to User Service", "error", err)
+		os.Exit(1)
+	}
+	defer userClient.Close()
+	logger.Info("connected to User Service", "addr", userServiceAddr)
+
+	iamServiceAddr := os.Getenv("IAM_SERVICE_ADDR")
+	if iamServiceAddr == "" {
+		iamServiceAddr = "localhost:50054"
+	}
+	iamClient, err := clients.NewIAMClient(iamServiceAddr)
+	if err != nil {
+		logger.Error("failed to connect to IAM Admin Service", "error", err)
+		os.Exit(1)
+	}
+	defer iamClient.Close()
+	logger.Info("connected to IAM Admin Service", "addr", iamServiceAddr)
+
+	// Initialize handler with all dependencies
+	handler := &handlers.Handler{
+		DB:         db,
+		Cache:      cacheClient,
+		Queue:      queueClient,
+		JWTManager: jwtManager,
+		Storage:    storageInst,
+		UserClient: userClient,
+		IAMClient:  iamClient,
+		Logger:     logger,
 	}
 
 	// Setup routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/auth/login", corsMiddleware(httpServer.handleLogin))
-	mux.HandleFunc("/api/v1/auth/register", corsMiddleware(httpServer.handleRegister))
-	mux.HandleFunc("/api/v1/auth/refresh", corsMiddleware(httpServer.handleRefresh))
-	mux.HandleFunc("/api/v1/auth/logout", corsMiddleware(httpServer.handleLogout))
-	mux.HandleFunc("/api/v1/auth/validate", corsMiddleware(httpServer.handleValidate))
+
+	// Authentication routes
+	mux.HandleFunc("/api/v1/auth/login", corsMiddleware(handler.HandleLogin))
+	mux.HandleFunc("/api/v1/auth/register", corsMiddleware(handler.HandleRegister))
+	mux.HandleFunc("/api/v1/auth/refresh", corsMiddleware(handler.HandleRefresh))
+	mux.HandleFunc("/api/v1/auth/logout", corsMiddleware(handler.HandleLogout))
+	mux.HandleFunc("/api/v1/auth/validate", corsMiddleware(handler.HandleValidate))
+	mux.HandleFunc("/api/v1/auth/me", corsMiddleware(handler.HandleMe))
+
+	// User management routes
+	mux.HandleFunc("/api/v1/users", corsMiddleware(handler.HandleListUsers))
+	mux.HandleFunc("/api/v1/users/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetUser(w, r)
+		case http.MethodPut:
+			handler.HandleUpdateUser(w, r)
+		case http.MethodDelete:
+			handler.HandleDeleteUser(w, r)
+		case http.MethodPost:
+			handler.HandleCreateUser(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	// IAM routes - Roles
+	mux.HandleFunc("/api/v1/iam/roles", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleListRoles(w, r)
+		case http.MethodPost:
+			handler.HandleCreateRole(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/api/v1/iam/roles/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.HandleGetRole(w, r)
+		case http.MethodPut:
+			handler.HandleUpdateRole(w, r)
+		case http.MethodDelete:
+			handler.HandleDeleteRole(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	// IAM routes - Role assignments
+	mux.HandleFunc("/api/v1/iam/roles/assign", corsMiddleware(handler.HandleAssignRole))
+	mux.HandleFunc("/api/v1/iam/roles/revoke", corsMiddleware(handler.HandleRevokeRole))
+	mux.HandleFunc("/api/v1/iam/users/", corsMiddleware(handler.HandleGetUserRoles))
 
 	// Health check endpoint
 	mux.HandleFunc("/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {

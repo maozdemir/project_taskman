@@ -1,0 +1,199 @@
+syntax = "proto3";
+
+package iam.v1;
+
+option go_package = "github.com/taskman/v2/services/iam-admin-service/pkg/api";
+
+import "google/protobuf/timestamp.proto";
+
+// IAMAdminService handles role and permission management
+service IAMAdminService {
+  // Role management
+  rpc CreateRole(CreateRoleRequest) returns (CreateRoleResponse);
+  rpc GetRole(GetRoleRequest) returns (GetRoleResponse);
+  rpc UpdateRole(UpdateRoleRequest) returns (UpdateRoleResponse);
+  rpc DeleteRole(DeleteRoleRequest) returns (DeleteRoleResponse);
+  rpc ListRoles(ListRolesRequest) returns (ListRolesResponse);
+
+  // User-Role assignments
+  rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+  rpc RevokeRole(RevokeRoleRequest) returns (RevokeRoleResponse);
+  rpc GetUserRoles(GetUserRolesRequest) returns (GetUserRolesResponse);
+  rpc ListUsersByRole(ListUsersByRoleRequest) returns (ListUsersByRoleResponse);
+
+  // Permission checks (used by other services)
+  rpc GetUserPermissions(GetUserPermissionsRequest) returns (GetUserPermissionsResponse);
+  rpc HasPermission(HasPermissionRequest) returns (HasPermissionResponse);
+
+  // System role initialization
+  rpc InitializeSystemRoles(InitializeSystemRolesRequest) returns (InitializeSystemRolesResponse);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Role management messages
+
+message CreateRoleRequest {
+  string company_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string permissions = 4;
+  int32 priority = 5; // Higher = more powerful (admin = 100)
+}
+
+message CreateRoleResponse {
+  Role role = 1;
+}
+
+message GetRoleRequest {
+  string role_id = 1;
+  string company_id = 2;
+}
+
+message GetRoleResponse {
+  Role role = 1;
+}
+
+message UpdateRoleRequest {
+  string role_id = 1;
+  string company_id = 2;
+  string name = 3;
+  string description = 4;
+  repeated string permissions = 5;
+  int32 priority = 6;
+}
+
+message UpdateRoleResponse {
+  Role role = 1;
+}
+
+message DeleteRoleRequest {
+  string role_id = 1;
+  string company_id = 2;
+}
+
+message DeleteRoleResponse {
+  bool success = 1;
+}
+
+message ListRolesRequest {
+  string company_id = 1;
+  bool include_system_roles = 2;
+}
+
+message ListRolesResponse {
+  repeated Role roles = 1;
+}
+
+// User-Role assignment messages
+
+message AssignRoleRequest {
+  string user_id = 1;
+  string role_id = 2;
+  string company_id = 3;
+  string assigned_by = 4; // User ID of who assigned the role
+  google.protobuf.Timestamp expires_at = 5; // Optional expiration
+}
+
+message AssignRoleResponse {
+  UserRole user_role = 1;
+}
+
+message RevokeRoleRequest {
+  string user_id = 1;
+  string role_id = 2;
+  string company_id = 3;
+}
+
+message RevokeRoleResponse {
+  bool success = 1;
+}
+
+message GetUserRolesRequest {
+  string user_id = 1;
+  string company_id = 2;
+}
+
+message GetUserRolesResponse {
+  repeated Role roles = 1;
+  repeated string role_names = 2; // Convenience field for JWT
+  repeated string all_permissions = 3; // Flattened list of all permissions
+  bool is_admin = 4; // True if user has admin role (priority >= 100 or *:* permission)
+}
+
+message ListUsersByRoleRequest {
+  string role_id = 1;
+  string company_id = 2;
+}
+
+message ListUsersByRoleResponse {
+  repeated string user_ids = 1;
+  int32 total_count = 2;
+}
+
+// Permission check messages
+
+message GetUserPermissionsRequest {
+  string user_id = 1;
+  string company_id = 2;
+}
+
+message GetUserPermissionsResponse {
+  repeated string permissions = 1;
+  bool is_admin = 2;
+}
+
+message HasPermissionRequest {
+  string user_id = 1;
+  string company_id = 2;
+  string permission = 3; // e.g., "tasks:create", "users:delete"
+}
+
+message HasPermissionResponse {
+  bool allowed = 1;
+  string reason = 2;
+}
+
+// System initialization
+
+message InitializeSystemRolesRequest {
+  string company_id = 1;
+}
+
+message InitializeSystemRolesResponse {
+  repeated Role created_roles = 1;
+}
+
+// Health check
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Models
+
+message Role {
+  string id = 1;
+  string company_id = 2;
+  string name = 3;
+  string description = 4;
+  bool is_system_role = 5; // Cannot be deleted if true
+  int32 priority = 6; // Higher = more powerful (admin = 100)
+  repeated string permissions = 7; // e.g., ["*:*"], ["tasks:*"], ["users:read", "users:update"]
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message UserRole {
+  string id = 1;
+  string user_id = 2;
+  string role_id = 3;
+  string company_id = 4;
+  string assigned_by = 5;
+  google.protobuf.Timestamp assigned_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 // Config holds database configuration
@@ -104,4 +104,16 @@ func (db *DB) Transaction(ctx context.Context, fn func(*sql.Tx) error) error {
 // WithTimeout creates a context with timeout
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, timeout)
+}
+
+// IsUniqueViolation checks if an error is a PostgreSQL unique constraint violation
+func IsUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if pqErr, ok := err.(*pq.Error); ok {
+		// 23505 is the PostgreSQL error code for unique_violation
+		return pqErr.Code == "23505"
+	}
+	return false
 }

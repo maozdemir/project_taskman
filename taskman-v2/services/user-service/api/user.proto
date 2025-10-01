@@ -1,0 +1,231 @@
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/taskman/v2/services/user-service/pkg/api";
+
+import "google/protobuf/timestamp.proto";
+
+// UserService handles user and company management
+service UserService {
+  // Company management
+  rpc CreateCompany(CreateCompanyRequest) returns (CreateCompanyResponse);
+  rpc GetCompany(GetCompanyRequest) returns (GetCompanyResponse);
+  rpc UpdateCompany(UpdateCompanyRequest) returns (UpdateCompanyResponse);
+  rpc ListCompanies(ListCompaniesRequest) returns (ListCompaniesResponse);
+  rpc DeleteCompany(DeleteCompanyRequest) returns (DeleteCompanyResponse);
+
+  // User management
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc GetUserByEmail(GetUserByEmailRequest) returns (GetUserByEmailResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
+  rpc VerifyPassword(VerifyPasswordRequest) returns (VerifyPasswordResponse);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Company messages
+
+message CreateCompanyRequest {
+  string name = 1;
+  string slug = 2;
+  string subscription_tier = 3; // free, pro, enterprise
+  int32 max_users = 4;
+  map<string, string> settings = 5;
+}
+
+message CreateCompanyResponse {
+  Company company = 1;
+}
+
+message GetCompanyRequest {
+  string company_id = 1;
+}
+
+message GetCompanyResponse {
+  Company company = 1;
+}
+
+message UpdateCompanyRequest {
+  string company_id = 1;
+  string name = 2;
+  string subscription_tier = 3;
+  int32 max_users = 4;
+  bool is_active = 5;
+  map<string, string> settings = 6;
+}
+
+message UpdateCompanyResponse {
+  Company company = 1;
+}
+
+message ListCompaniesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string filter = 3; // Optional filter
+}
+
+message ListCompaniesResponse {
+  repeated Company companies = 1;
+  int32 total_count = 2;
+}
+
+message DeleteCompanyRequest {
+  string company_id = 1;
+}
+
+message DeleteCompanyResponse {
+  bool success = 1;
+}
+
+// User messages
+
+message CreateUserRequest {
+  string company_id = 1;
+  string email = 2;
+  string username = 3;
+  string password = 4; // Will be hashed
+  string first_name = 5;
+  string last_name = 6;
+  string department = 7;
+  string location = 8;
+  string avatar_url = 9;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+  string company_id = 2; // For company isolation
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message GetUserByEmailRequest {
+  string email = 1;
+  string company_id = 2; // Optional - if not provided, searches across all companies (admin only)
+}
+
+message GetUserByEmailResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  string company_id = 2;
+  string email = 3;
+  string username = 4;
+  string first_name = 5;
+  string last_name = 6;
+  string department = 7;
+  string location = 8;
+  string avatar_url = 9;
+  bool is_active = 10;
+  bool email_verified = 11;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+  string company_id = 2;
+}
+
+message DeleteUserResponse {
+  bool success = 1;
+}
+
+message ListUsersRequest {
+  string company_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string filter = 4; // Optional filter (name, email, department)
+  bool active_only = 5;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  int32 total_count = 2;
+}
+
+message SearchUsersRequest {
+  string company_id = 1;
+  string query = 2; // Search by name, email, username
+  int32 limit = 3;
+}
+
+message SearchUsersResponse {
+  repeated User users = 1;
+}
+
+message UpdatePasswordRequest {
+  string user_id = 1;
+  string company_id = 2;
+  string old_password = 3; // For user-initiated password changes
+  string new_password = 4;
+}
+
+message UpdatePasswordResponse {
+  bool success = 1;
+}
+
+message VerifyPasswordRequest {
+  string user_id = 1;
+  string company_id = 2;
+  string password = 3;
+}
+
+message VerifyPasswordResponse {
+  bool valid = 1;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Models
+
+message Company {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string subscription_tier = 4;
+  int32 max_users = 5;
+  bool is_active = 6;
+  map<string, string> settings = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message User {
+  string id = 1;
+  string company_id = 2;
+  string email = 3;
+  string username = 4;
+  string password_hash = 5; // Only included in internal responses
+  string first_name = 6;
+  string last_name = 7;
+  string avatar_url = 8;
+  string department = 9;
+  string location = 10;
+  bool is_active = 11;
+  bool email_verified = 12;
+  google.protobuf.Timestamp last_login_at = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}

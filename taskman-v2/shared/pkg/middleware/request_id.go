@@ -8,9 +8,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-type contextKey string
-
-const requestIDKey contextKey = "request_id"
+// RequestIDKey is exported for use in other middleware
+const RequestIDKey contextKey = "request_id"
 
 // RequestIDInterceptor adds a request ID to the context
 func RequestIDInterceptor() grpc.UnaryServerInterceptor {
@@ -34,7 +33,7 @@ func RequestIDInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		// Add to context
-		ctx = context.WithValue(ctx, requestIDKey, requestID)
+		ctx = context.WithValue(ctx, RequestIDKey, requestID)
 
 		// Add to outgoing metadata
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-request-id", requestID)
@@ -45,8 +44,13 @@ func RequestIDInterceptor() grpc.UnaryServerInterceptor {
 
 // GetRequestID retrieves request ID from context
 func GetRequestID(ctx context.Context) string {
-	if requestID, ok := ctx.Value(requestIDKey).(string); ok {
+	if requestID, ok := ctx.Value(RequestIDKey).(string); ok {
 		return requestID
 	}
 	return ""
+}
+
+// GenerateRequestID generates a new unique request ID
+func GenerateRequestID() string {
+	return uuid.New().String()
 }
