@@ -71,7 +71,10 @@ func (s *Service) CreateRole(ctx context.Context, req *pb.CreateRoleRequest) (*p
 
 	if err := s.storage.CreateRole(ctx, role); err != nil {
 		s.log.Error("failed to create role", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to create role").ToGRPCError()
 	}
 
 	// Invalidate permission cache for this company
@@ -99,7 +102,10 @@ func (s *Service) GetRole(ctx context.Context, req *pb.GetRoleRequest) (*pb.GetR
 
 	role, err := s.storage.GetRole(ctx, req.RoleId, req.CompanyId)
 	if err != nil {
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to get role").ToGRPCError()
 	}
 
 	return &pb.GetRoleResponse{
@@ -118,7 +124,10 @@ func (s *Service) UpdateRole(ctx context.Context, req *pb.UpdateRoleRequest) (*p
 	// Get existing role
 	role, err := s.storage.GetRole(ctx, req.RoleId, req.CompanyId)
 	if err != nil {
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to get role").ToGRPCError()
 	}
 
 	// Cannot modify system roles' basic properties
@@ -142,7 +151,10 @@ func (s *Service) UpdateRole(ctx context.Context, req *pb.UpdateRoleRequest) (*p
 
 	if err := s.storage.UpdateRole(ctx, role); err != nil {
 		s.log.Error("failed to update role", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to update role").ToGRPCError()
 	}
 
 	// Invalidate permission cache for this company
@@ -169,7 +181,10 @@ func (s *Service) DeleteRole(ctx context.Context, req *pb.DeleteRoleRequest) (*p
 
 	if err := s.storage.DeleteRole(ctx, req.RoleId, req.CompanyId); err != nil {
 		s.log.Error("failed to delete role", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to delete role").ToGRPCError()
 	}
 
 	// Invalidate permission cache for this company
@@ -192,7 +207,10 @@ func (s *Service) ListRoles(ctx context.Context, req *pb.ListRolesRequest) (*pb.
 	roles, err := s.storage.ListRoles(ctx, req.CompanyId, req.IncludeSystemRoles)
 	if err != nil {
 		s.log.Error("failed to list roles", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to list roles").ToGRPCError()
 	}
 
 	pbRoles := make([]*pb.Role, 0, len(roles))
@@ -223,7 +241,10 @@ func (s *Service) AssignRole(ctx context.Context, req *pb.AssignRoleRequest) (*p
 	// Verify role exists
 	_, err := s.storage.GetRole(ctx, req.RoleId, req.CompanyId)
 	if err != nil {
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to verify role").ToGRPCError()
 	}
 
 	// Create user-role assignment
@@ -245,7 +266,10 @@ func (s *Service) AssignRole(ctx context.Context, req *pb.AssignRoleRequest) (*p
 
 	if err := s.storage.AssignRole(ctx, userRole); err != nil {
 		s.log.Error("failed to assign role", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to assign role").ToGRPCError()
 	}
 
 	// Invalidate user permission cache
@@ -277,7 +301,10 @@ func (s *Service) RevokeRole(ctx context.Context, req *pb.RevokeRoleRequest) (*p
 
 	if err := s.storage.RevokeRole(ctx, req.UserId, req.RoleId, req.CompanyId); err != nil {
 		s.log.Error("failed to revoke role", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to revoke role").ToGRPCError()
 	}
 
 	// Invalidate user permission cache
@@ -318,14 +345,20 @@ func (s *Service) GetUserRoles(ctx context.Context, req *pb.GetUserRolesRequest)
 	roles, err := s.storage.GetUserRoles(ctx, req.UserId, req.CompanyId)
 	if err != nil {
 		s.log.Error("failed to get user roles", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to get user roles").ToGRPCError()
 	}
 
 	// Get all permissions and check if admin
 	permissions, isAdmin, err := s.storage.GetUserPermissions(ctx, req.UserId, req.CompanyId)
 	if err != nil {
 		s.log.Error("failed to get user permissions", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to get user permissions").ToGRPCError()
 	}
 
 	// Extract role names
@@ -364,7 +397,10 @@ func (s *Service) ListUsersByRole(ctx context.Context, req *pb.ListUsersByRoleRe
 	userIDs, err := s.storage.ListUsersByRole(ctx, req.RoleId, req.CompanyId)
 	if err != nil {
 		s.log.Error("failed to list users by role", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to list users by role").ToGRPCError()
 	}
 
 	return &pb.ListUsersByRoleResponse{
@@ -386,7 +422,10 @@ func (s *Service) GetUserPermissions(ctx context.Context, req *pb.GetUserPermiss
 	permissions, isAdmin, err := s.storage.GetUserPermissions(ctx, req.UserId, req.CompanyId)
 	if err != nil {
 		s.log.Error("failed to get user permissions", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to get user permissions").ToGRPCError()
 	}
 
 	return &pb.GetUserPermissionsResponse{
@@ -443,7 +482,10 @@ func (s *Service) InitializeSystemRoles(ctx context.Context, req *pb.InitializeS
 	roles, err := s.storage.InitializeSystemRoles(ctx, req.CompanyId)
 	if err != nil {
 		s.log.Error("failed to initialize system roles", "error", err)
-		return nil, err.(*errors.AppError).ToGRPCError()
+		if appErr, ok := err.(*errors.AppError); ok {
+			return nil, appErr.ToGRPCError()
+		}
+		return nil, errors.Internal("failed to initialize system roles").ToGRPCError()
 	}
 
 	pbRoles := make([]*pb.Role, 0, len(roles))

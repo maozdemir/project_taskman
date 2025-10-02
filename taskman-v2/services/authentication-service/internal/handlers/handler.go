@@ -19,14 +19,15 @@ import (
 
 // Handler holds all dependencies for HTTP handlers
 type Handler struct {
-	DB         *database.DB
-	Cache      *cache.Cache
-	Queue      *queue.Queue
-	JWTManager *jwt.Manager
-	Storage    *storage.Storage
-	UserClient *clients.UserClient
-	IAMClient  *clients.IAMClient
-	Logger     *slog.Logger
+	DB          *database.DB
+	Cache       *cache.Cache
+	Queue       *queue.Queue
+	JWTManager  *jwt.Manager
+	Storage     *storage.Storage
+	UserClient  *clients.UserClient
+	IAMClient   *clients.IAMClient
+	AuditClient *clients.AuditClient
+	Logger      *slog.Logger
 }
 
 // Helper methods

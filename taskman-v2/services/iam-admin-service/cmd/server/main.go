@@ -173,16 +173,11 @@ func main() {
 	log.Info("audit logger initialized")
 
 	// Define public methods (used by all services for permission checks)
+	// Note: Role management methods now require authentication so that user/company context is available for authorization
 	publicMethods := []string{
 		"/iam.v1.IAMAdminService/HasPermission",      // Used by all services
 		"/iam.v1.IAMAdminService/GetUserRoles",       // Used by all services
 		"/iam.v1.IAMAdminService/GetUserPermissions", // Used by all services
-		"/iam.v1.IAMAdminService/ListRoles",          // Used by admin panel
-		"/iam.v1.IAMAdminService/CreateRole",         // Used by admin panel (auth already validated in HTTP layer)
-		"/iam.v1.IAMAdminService/UpdateRole",         // Used by admin panel
-		"/iam.v1.IAMAdminService/DeleteRole",         // Used by admin panel
-		"/iam.v1.IAMAdminService/AssignRole",         // Used by admin panel
-		"/iam.v1.IAMAdminService/RevokeRole",         // Used by admin panel
 		"/iam.v1.IAMAdminService/HealthCheck",        // Always public
 	}
 

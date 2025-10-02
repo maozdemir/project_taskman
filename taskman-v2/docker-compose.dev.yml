@@ -432,6 +432,36 @@ services:
     restart: unless-stopped
 
   # ==========================================
+  # AUDIT SERVICE (gRPC)
+  # ==========================================
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: services/audit-service/Dockerfile
+    container_name: taskman-v2-audit-service
+    environment:
+      DATABASE_URL: postgresql://audit_user:${AUDIT_DB_PASSWORD:-audit_password_dev}@timescaledb-audit:5432/audit_db?sslmode=disable
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password_dev}
+      RABBITMQ_URI: amqp://${RABBITMQ_USER:-taskman}:${RABBITMQ_PASSWORD:-rabbitmq_password_dev}@rabbitmq:5672/
+      GRPC_PORT: 50056
+      METRICS_PORT: 9096
+    ports:
+      - "50056:50056"
+      - "9096:9096"
+    networks:
+      - taskman-network
+    depends_on:
+      timescaledb-audit:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================
   # AUTHENTICATION HTTP SERVICE
   # ==========================================
 
@@ -450,6 +480,7 @@ services:
       HTTP_PORT: 8080
       USER_SERVICE_ADDR: user-service:50053
       IAM_SERVICE_ADDR: iam-service:50054
+      AUDIT_SERVICE_ADDR: audit-service:50056
     ports:
       - "8080:8080"
     networks:
@@ -464,6 +495,8 @@ services:
       user-service:
         condition: service_started
       iam-service:
+        condition: service_started
+      audit-service:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]

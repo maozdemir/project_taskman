@@ -11,6 +11,7 @@ COPY shared/go.mod shared/go.sum /build/shared/
 COPY services/authentication-service/go.mod services/authentication-service/go.sum /build/services/authentication-service/
 COPY services/user-service/go.mod services/user-service/go.sum /build/services/user-service/
 COPY services/iam-admin-service/go.mod services/iam-admin-service/go.sum /build/services/iam-admin-service/
+COPY services/audit-service/go.mod services/audit-service/go.sum /build/services/audit-service/
 
 # Copy shared module
 COPY shared /build/shared
@@ -18,6 +19,7 @@ COPY shared /build/shared
 # Copy proto-generated code from other services (needed for gRPC clients)
 COPY services/user-service/pkg /build/services/user-service/pkg
 COPY services/iam-admin-service/pkg /build/services/iam-admin-service/pkg
+COPY services/audit-service/pkg /build/services/audit-service/pkg
 
 # Copy authentication service files
 COPY services/authentication-service /build/services/authentication-service

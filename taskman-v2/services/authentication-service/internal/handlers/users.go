@@ -37,7 +37,8 @@ func (h *Handler) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 		PageSize:  100,
 	}
 
-	listResp, err := h.UserClient.Client.ListUsers(r.Context(), listReq)
+	ctx := contextWithAuth(r.Context(), token)
+	listResp, err := h.UserClient.Client.ListUsers(ctx, listReq)
 	if err != nil {
 		h.Logger.Error("failed to list users", "error", err)
 		respondWithError(w, http.StatusInternalServerError, "LIST_FAILED", "Failed to list users")
@@ -86,7 +87,8 @@ func (h *Handler) HandleGetUser(w http.ResponseWriter, r *http.Request) {
 		CompanyId: claims.CompanyID,
 	}
 
-	getUserResp, err := h.UserClient.Client.GetUser(r.Context(), getUserReq)
+	ctx := contextWithAuth(r.Context(), token)
+	getUserResp, err := h.UserClient.Client.GetUser(ctx, getUserReq)
 	if err != nil {
 		h.Logger.Error("failed to get user", "error", err, "user_id", userID)
 		respondWithError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
@@ -153,7 +155,8 @@ func (h *Handler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Location:   req.Location,
 	}
 
-	createUserResp, err := h.UserClient.Client.CreateUser(r.Context(), createUserReq)
+	ctx := contextWithAuth(r.Context(), token)
+	createUserResp, err := h.UserClient.Client.CreateUser(ctx, createUserReq)
 	if err != nil {
 		h.Logger.Error("failed to create user", "error", err)
 		respondWithError(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create user")
@@ -229,7 +232,8 @@ func (h *Handler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		IsActive:   req.IsActive,
 	}
 
-	updateUserResp, err := h.UserClient.Client.UpdateUser(r.Context(), updateUserReq)
+	ctx := contextWithAuth(r.Context(), token)
+	updateUserResp, err := h.UserClient.Client.UpdateUser(ctx, updateUserReq)
 	if err != nil {
 		h.Logger.Error("failed to update user", "error", err)
 		respondWithError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to update user")
@@ -283,7 +287,8 @@ func (h *Handler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		CompanyId: claims.CompanyID,
 	}
 
-	deleteUserResp, err := h.UserClient.Client.DeleteUser(r.Context(), deleteUserReq)
+	ctx := contextWithAuth(r.Context(), token)
+	deleteUserResp, err := h.UserClient.Client.DeleteUser(ctx, deleteUserReq)
 	if err != nil {
 		h.Logger.Error("failed to delete user", "error", err)
 		respondWithError(w, http.StatusInternalServerError, "DELETE_FAILED", "Failed to delete user")

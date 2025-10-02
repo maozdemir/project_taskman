@@ -56,9 +56,10 @@ func main() {
 	logger.Info("connected to TimescaleDB")
 
 	// Initialize queue for consuming events
+	// Use a dedicated exchange for audit events
 	queueClient, err := queue.New(&queue.Config{
 		URI:              cfg.RabbitMQURI,
-		ExchangeName:     "",    // Will bind to multiple exchanges
+		ExchangeName:     "audit.events",
 		ExchangeType:     "topic",
 		PrefetchCount:    10,
 		ReconnectDelay:   5 * time.Second,

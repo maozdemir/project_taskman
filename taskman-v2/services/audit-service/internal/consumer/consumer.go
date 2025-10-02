@@ -26,30 +26,25 @@ func New(q *queue.Queue, storage *storage.Storage, log *logger.Logger) *EventCon
 
 // Start starts consuming events
 func (c *EventConsumer) Start(ctx context.Context) error {
-	// List of queues to consume from
-	queuesToConsume := []string{
-		"audit.auth.events",
-		"audit.user.events",
-		"audit.task.events",
-		"audit.iam.events",
+	// Define queue bindings for different event types
+	// Each queue will consume specific routing patterns from the audit.events exchange
+	bindings := map[string]string{
+		"audit.auth.events": "authz.#",  // Authorization/authentication events
+		"audit.user.events": "user.#",   // User management events
+		"audit.task.events": "task.#",   // Task management events
+		"audit.iam.events":  "iam.#",    // IAM events
 	}
 
-	// Set up bindings
-	if err := c.queue.BindQueue("audit.auth.events", "auth.#"); err != nil {
-		return err
-	}
-	if err := c.queue.BindQueue("audit.user.events", "user.#"); err != nil {
-		return err
-	}
-	if err := c.queue.BindQueue("audit.task.events", "task.#"); err != nil {
-		return err
-	}
-	if err := c.queue.BindQueue("audit.iam.events", "iam.#"); err != nil {
-		return err
-	}
+	// Set up bindings and start consuming
+	for queueName, routingKey := range bindings {
+		// Bind queue to exchange with routing key
+		if err := c.queue.BindQueue(queueName, routingKey); err != nil {
+			c.log.Error("failed to bind queue", "queue", queueName, "routing_key", routingKey, "error", err)
+			return err
+		}
+		c.log.Info("bound queue to exchange", "queue", queueName, "routing_key", routingKey)
 
-	// Start consuming from each queue
-	for _, queueName := range queuesToConsume {
+		// Start consuming from queue
 		if err := c.queue.Consume(queueName, c.handleEvent); err != nil {
 			c.log.Error("failed to start consuming", "queue", queueName, "error", err)
 			return err

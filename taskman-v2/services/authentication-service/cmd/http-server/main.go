@@ -142,16 +142,29 @@ func main() {
 	defer iamClient.Close()
 	logger.Info("connected to IAM Admin Service", "addr", iamServiceAddr)
 
+	auditServiceAddr := os.Getenv("AUDIT_SERVICE_ADDR")
+	if auditServiceAddr == "" {
+		auditServiceAddr = "localhost:50056"
+	}
+	auditClient, err := clients.NewAuditClient(auditServiceAddr)
+	if err != nil {
+		logger.Error("failed to connect to Audit Service", "error", err)
+		os.Exit(1)
+	}
+	defer auditClient.Close()
+	logger.Info("connected to Audit Service", "addr", auditServiceAddr)
+
 	// Initialize handler with all dependencies
 	handler := &handlers.Handler{
-		DB:         db,
-		Cache:      cacheClient,
-		Queue:      queueClient,
-		JWTManager: jwtManager,
-		Storage:    storageInst,
-		UserClient: userClient,
-		IAMClient:  iamClient,
-		Logger:     logger,
+		DB:          db,
+		Cache:       cacheClient,
+		Queue:       queueClient,
+		JWTManager:  jwtManager,
+		Storage:     storageInst,
+		UserClient:  userClient,
+		IAMClient:   iamClient,
+		AuditClient: auditClient,
+		Logger:      logger,
 	}
 
 	// Setup routes
@@ -210,6 +223,10 @@ func main() {
 	mux.HandleFunc("/api/v1/iam/roles/assign", corsMiddleware(handler.HandleAssignRole))
 	mux.HandleFunc("/api/v1/iam/roles/revoke", corsMiddleware(handler.HandleRevokeRole))
 	mux.HandleFunc("/api/v1/iam/users/", corsMiddleware(handler.HandleGetUserRoles))
+
+	// Audit routes
+	mux.HandleFunc("/api/v1/audit/logs", corsMiddleware(handler.HandleQueryAuditLogs))
+	mux.HandleFunc("/api/v1/audit/activity", corsMiddleware(handler.HandleGetUserActivity))
 
 	// Health check endpoint
 	mux.HandleFunc("/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {

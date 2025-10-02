@@ -8,19 +8,20 @@ CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
 -- Audit events table (will be converted to hypertable)
 CREATE TABLE IF NOT EXISTS audit_events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_type VARCHAR(100) NOT NULL,
+    id UUID NOT NULL DEFAULT uuid_generate_v4(),
+    event_type TEXT NOT NULL,
     actor_id UUID,
-    actor_email VARCHAR(255),
-    target_type VARCHAR(100),
+    actor_email TEXT,
+    target_type TEXT,
     target_id UUID,
     company_id UUID NOT NULL,
-    action VARCHAR(100) NOT NULL,
-    result VARCHAR(50) NOT NULL, -- success, failure
+    action TEXT NOT NULL,
+    result TEXT NOT NULL, -- success, failure
     ip_address INET,
     user_agent TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
-    timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (id, timestamp)
 );
 
 -- Convert to hypertable for time-series optimization
